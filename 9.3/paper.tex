@@ -38,6 +38,12 @@
 \newcommand{\cmake}{{\specialword{CMake}}\xspace}
 \newcommand{\autoconf}{{\specialword{autoconf}}\xspace}
 
+
+\usetikzlibrary{shapes.misc}
+\tikzset{cross/.style={cross out, draw=black, minimum size=2*(#1-\pgflinewidth), inner sep=0pt, outer sep=0pt},
+%default radius will be 1pt. 
+cross/.default={2pt}}
+
 %
 % Author list -- please add yourself in both places below (in
 %                alphabetical order) if you think that your
@@ -64,10 +70,10 @@
     Zhuoran Wang,
     David Wells
   },
-  pdftitle={The deal.II Library, Version 9.2, 2020},
+  pdftitle={The deal.II Library, Version 9.3, 2021},
 }
 
-\title{The \dealii{} Library, Version 9.2}
+\title{The \dealii{} Library, Version 9.3}
 
  \author[*1]{Daniel Arndt}
  \affil[1]{Computational Engineering and Energy Sciences Group,
@@ -258,59 +264,7 @@ are a number of other noteworthy changes in the current \dealii{} release
 that we briefly outline in the remainder of this section:
 %
 \begin{itemize}
-  \item \dealii{} had decent support for solving complex-valued problems
-        for a while already
-        (e.g., ones in quantum mechanics -- like the equation used in the
-        \texttt{step-58} tutorial program covered below -- or for
-        time-harmonic problems). However, there were two
-        areas in which support was missing. First, the UMFPACK direct solver
-        packaged with \dealii{} did not support solving complex-valued
-        linear problems. This has now been addressed: UMFPACK actually can
-        solve such systems, we just needed to write the appropriate
-        interfaces. Second, the \texttt{DataOut} class that is responsible
-        for converting nodal data into information that can then be written
-        into files for visualization did not know how to deal with vector-
-        and tensor-valued fields whose components are complex numbers. An
-        example for this is to solve the time-harmonic version of the
-        Maxwell equations that has the electric and magnetic fields as
-        solution. This, too, has been addressed in this release.
-  \item The new \texttt{DiscreteTime} class provides a more
-        consistent, more readable, and less error-prone approach to control
-        time-stepping algorithms within time-dependent simulations.
-        While providing a rich read-only interface, the non-const interface
-        of this class is designed to be minimal
-        to enforce a number of important programming invariants, reducing
-        the possibility of mistakes in the user code.
-        For instance, \texttt{DiscreteTime} ensures that the final time step ends
-        precisely on a predefined end time, automatically
-        lengthening or shortening the final time step.
-  \item A key component of \dealii{} are the \texttt{FEValues} and
-        \texttt{FEFaceValues} classes that evaluate finite element functions
-        at quadrature points located on cells and faces of a cell,
-        respectively~\cite{BangerthHartmannKanschat2007}. This release now
-        contains a class \texttt{FEInterfaceValues} that considers the
-        restriction of the shape functions from \textit{both} sides of a face and
-        allows evaluating jumps and averages of shape functions along this
-        face. These are common components of the bilinear forms of
-        discontinuous Galerkin schemes (as well as schemes for fourth-order
-        equations, see the discussion of \texttt{step-47} below) and greatly
-        simplify the implementation of these methods.
-  \item Previously, the \texttt{parallel::distributed::ContinuousQuadratureDataTransfer}
-        class, which transfers local quadrature point data onto the
-        children of newly refined cells, did not allow different cells
-        to store quadrature data of different lengths. This release lifts
-        this restriction, which enables efficient quadrature data storage and data
-        transfer within a triangulation containing multiple material models, each with
-        their own number of local state variables and history variables.
-        As an example, in a solid mechanics simulation, we can assign a hyper-elastic
-        material model to a region of the mesh with no associated
-        history variables, while in another part of the triangulation we incorporate an
-        elasto-plastic constitutive model, requiring the storage of local plasticity
-        data at quadrature points.
-        During each refinement of the mesh, we can then use
-        \texttt{ContinuousQuadratureDataTransfer} to transfer and interpolate
-        plasticity data from parent cells to their children, ignoring the cells
-        with the hyper-elastic constitutive model.
+  \item globally unique cell IDs
 \end{itemize}
 %
 The changelog lists more than 240 other
@@ -333,586 +287,527 @@ can be found
 \href{https://dealii.org/developer/doxygen/deal.II/changes_between_9_1_1_and_9_2_0.html}{
   in the file that lists all changes for this release}, see \cite{changes92}.
 
+\newpage
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{A new fully distributed triangulation class}
+\subsection{Simplex and mixed mesh support}
 \label{subsec:pft}
 
-Previously, all triangulation classes of \dealii{} had in common that the coarse grid is replicated by
-all processes in a parallel environment, and the actual mesh used for computations is constructed by repeated
-refinement. However, this has its limitations in many
-applications where the mesh comes
-from an external mesh generator in the form of a file that frequently
-already contains millions
-or tens of millions of cells. For such configurations, applications might exhaust
-available memory already while reading the mesh on each MPI process.
+\begin{figure}[!h]
 
-The new \texttt{parallel::fullydistributed::Triangulation} class targets this issue
-by distributing also the coarse grid. Such
-a triangulation can be created by providing to each process a \texttt{Triangulation\-De\-scrip\-tion::Description} struct, containing
-(i) the relevant data to construct the local part of the coarse grid, (ii) the
-translation of the local coarse-cell IDs to globally unique IDs, (iii) the hierarchy
-of mesh refinement steps, and (iv) the owner of the cells on the active mesh level as well
-as on the multigrid levels. For the current release, triangulations set up
-this way cannot be adaptively refined after construction, though we plan to
-improve this for the next release.
-
-%The \texttt{TriangulationDescription::Description} struct can be filled manually or
-%by the utility functions from the \texttt{TriangulationDescription::Utilities}
-%namespace. The function \texttt{create\_\allowbreak description\_\allowbreak
-%from\_ \allowbreak triangulation()} can convert a base triangulation (partitioned
-%serial \texttt{Tri\-angulation} and \texttt{parallel::distributed::Triangulation})
-%to such a struct. The advantage of this approach is that all known utility
-%functions from the namespaces \texttt{GridIn} and \texttt{GridTools} can be used
-%on the base triangulations before converting them to the structs. Since this
-%function suffers from the same main memory problems as described above, we also
-%provide the function \texttt{create\_description\_from\_triangulation\_in\_groups()},
-%which creates the structs only on the master process in a process group. These
-%structs are filled one by one and are sent to the relevant processes once they are
-%ready. A sensible process group size might contain all processes of one compute node.
+\centering
 
 
-The new fully distributed triangulation class supports 1D, 2D, and 3D meshes
-including geometric multigrid hierarchies, periodic boundary conditions, and
-hanging nodes.
+\begin{tikzpicture}[scale=1.7]
 
-%We intend to extend the usability of the new triangulation class in regard of
-%different aspects, e.g., I/O. In addition, we would like to enable adaptive mesh
-%refinement, a feature of the other triangulation classes, which is very much
-%appreciated by many users. For repartitioning, we plan to use an oracle approach
-%known from \texttt{parallel::distributed::Triangulation}. Here, we would like to
-%rely on a user-provided partitioner, which might also be a graph partitioner.
+\coordinate (0) at (0,0);
+\coordinate (1) at (1,0);
+\coordinate (2) at (0,1);
+
+\coordinate (3) at (0,0.5);
+\coordinate (4) at (0.5,0.5);
+\coordinate (5) at (0.5,0);
+
+\foreach \i in {0,1, 2}
+    \fill (\i) circle (1.1pt) node [below] {};
+
+\foreach \i in {3,4,5}
+    \draw (\i) node[cross] {};
+
+
+\draw (0) --(1) -- (2) -- (0);
+
+\end{tikzpicture}
+\begin{tikzpicture}[scale=1.7]
+
+\coordinate (0) at (0,0);
+\coordinate (1) at (1,0);
+\coordinate (2) at (1,1);
+\coordinate (3) at (0,1);
+
+
+\coordinate (4) at (0.5,0,0);
+\coordinate (5) at (1.0,0.5);
+\coordinate (6) at (0.0,0.5);
+\coordinate (7) at (0.5,1.0);
+\coordinate (8) at (0.5,0.5);
+
+\foreach \i in {0,1, 2, 3}
+    \fill (\i) circle (1.1pt) node [below] {};
+    
+    
+\foreach \i in {4,5,6,7,8}
+    \draw (\i) node[cross] {};
+
+
+\draw (0) --(1) -- (2) -- (3) -- (0);
+
+\end{tikzpicture}
+\qquad\qquad
+\begin{tikzpicture}[scale=1.3]
+
+\coordinate (0) at (0,0,0);
+\coordinate (1) at (1,0,0);
+\coordinate (2) at (0,1,0);
+\coordinate (3) at (0,0,1);
+
+\coordinate (4) at (0.5,0,0);
+\coordinate (5) at (0,0.5,0);
+\coordinate (6) at (0,0,0.5);
+\coordinate (7) at (0.5,0.5,0.0);
+\coordinate (8) at (0.5,0.0,0.5);
+\coordinate (9) at (0.0,0.5,0.5);
+
+
+\foreach \i in {0,1,2,3}
+    \fill (\i) circle (1.5pt) node [below] {};
+    
+    
+\foreach \i in {4,5,6,7,8,9}
+    \draw (\i) node[cross] {};
+
+
+\draw (0) -- (1) -- (2) -- (0);
+\draw (0) -- (1) -- (3) -- (0);
+\draw (1) -- (2) -- (3) -- (1);
+
+\end{tikzpicture}
+\begin{tikzpicture}[scale=1.5]
+
+\coordinate (0) at (0.0, 0.0, 0.0);
+\coordinate (1) at (0.0, 0.0, 1.0);
+\coordinate (2) at (1.0, 0.0, 0.0);
+\coordinate (3) at (1.0, 0.0, 1.0);
+\coordinate (4) at (0.5, 1.0, 0.5);
+
+\coordinate  (5) at (0.5, 0.0, 0.0);
+\coordinate  (6) at (0.0, 0.0, 0.5);
+\coordinate  (7) at (0.5, 0.0, 1.0);
+\coordinate  (8) at (1.0, 0.0, 0.5);
+
+\coordinate  (9) at (0.25,0.5,0.25);
+\coordinate (10) at (0.25,0.5,0.75);
+\coordinate (11) at (0.75,0.5,0.25);
+\coordinate (12) at (0.75,0.5,0.75);
+
+
+\coordinate (13) at (0.5, 0.0, 0.5);
+
+\foreach \i in {0,1,2,3,4}
+    \fill (\i) circle (1.3pt) node [below] {};
+    
+    
+%\foreach \i in {5, 6, 7, 8, 9, 10, 11, 12, 13}
+%    \draw (\i) node[cross] {};
+
+
+\draw (0) -- (1) -- (3) -- (2) -- (0);
+\draw (1) -- (4) -- (3);
+\draw (0) -- (4) -- (2);
+
+\end{tikzpicture}
+\begin{tikzpicture}[scale=1.3]
+
+\coordinate (0) at (0,0,1.5);
+\coordinate (1) at (1,0,1.5);
+\coordinate (2) at (0.0,1.0,1.5);
+
+\coordinate (3) at (0,0,0);
+\coordinate (4) at (1,0,0);
+\coordinate (5) at (0.0,1.0,0);
 
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{Improved large-scale performance}
-\label{subsec:performance}
+\coordinate  (6) at (0.5, 0.0, 0.0);
+\coordinate  (7) at (0.0, 0.5, 0.0);
+\coordinate  (8) at (0.5, 0.5, 0.0);
 
-Large-scale simulations with up to 304,128 cores have revealed bottlenecks in release
-9.1 during initialization of a number of distributed data structures, due to the usage of expensive collective operations
-like \texttt{MPI\_Allgather()} and \texttt{MPI\_\allowbreak
-  Alltoall()}. Typical examples are the
-pre-computation of the indices of those vector entries (or
-other linear index ranges) owned by
-each process, which were previously stored in  an array on every process.
-This information is needed to set up
-the  \texttt{Utilities::MPI::Par\-ti\-ti\-oner} class.
-In release 9.2, we have replaced these functions in favor of
-consensus algorithms~\cite{hoefler2010scalable}, which can be
-found in the namespace \texttt{Utilities::\allowbreak MPI::\allowbreak ConsensusAlgorithms} (short: \texttt{CA}).
-Now, only the locally relevant information about the index ranges is
-(re)computed when needed, which, for more than 100 MPI processes, uses
-point-to-point communications and a single \texttt{MPI\_IBarrier()}.
+\coordinate   (9) at (0.5, 0.0, 0.75);
+\coordinate  (10) at (0.0, 0.5, 0.75);
+\coordinate  (11) at (0.5, 0.5, 0.75);
 
-%Consensus algorithms are algorithms dedicated to efficient dynamic-sparse
-%communication patterns. In this context, the term ``dynamic-sparse'' means
-%that by the time this function is called, the other processes do not know
-%yet that they have to answer requests and
-%each process only has to communicate with a small subset of processes of the
-%MPI communicator. We provide two flavors of the consensus algorithm: the two-step
-%approach \texttt{ConsensusAlgorithms::PEX} and the \texttt{ConsensusAlgorithms::NBX},
-%which uses only point-to-point communications and a single \texttt{MPI\_IBarrier()}.
-%The class \texttt{ConsensusAlgorithms::Selector} selects one of the two previous
-%algorithms, depending on the number of processes.
+\coordinate  (12) at (0.5, 0.0, 1.5);
+\coordinate  (13) at (0.0, 0.5, 1.5);
+\coordinate  (14) at (0.5, 0.5, 1.5);
 
-Users can apply the new algorithms for their own dynamic-sparse problems by
-providing a list of target
-processes and pack/unpack routines either by implementing the interface
-\texttt{CA::\allowbreak Process} or by providing \texttt{std::function}
-objects to \texttt{CA::AnonymousProcess}.
+\foreach \i in {0,1,2,3,4,5}
+    \fill (\i) circle (1.5pt) node [below] {};
+    
+\foreach \i in {6,7,8,9,10,11,12,13,14}
+    \draw (\i) node[cross] {};
 
-By replacing the collective communications during set up and removing the arrays
-that contain information for each process (enabled by the application of consensus
-algorithms and other modifications---a full list of modifications leading to this
-improvement can be found online), we were able to significantly
-improve the set up
-time for large-scale simulations and to solve a Poisson problem with multigrid
-with \num{2.1e12} unknowns on the SuperMUC-NG supercomputer with 304,152
-cores~\cite{dealII2020design,Arndt2020sppexa}.
-Figure~\ref{fig:init_costs} compares timings of simulations of various problem
-sizes (including set up) on 49,152 MPI ranks using a matrix-free
-solver~\cite{Arndt2020sppexa,KronbichlerKormann2019,KronbichlerWall2018}; this solver uses discontinuous elements of
-degree $5$ in a geometric multigrid (GMG) scheme. The comparison between the previous release 9.1
-and the current release 9.2 shows that while the scaling for the V-cycle had been
-very good before, many initialization routines have been considerably
-improved, especially the enumeration of unknowns on the multigrid levels and
-the setup of the multigrid transfer.
 
-\pgfplotstableread{
-  dofs  grid  distdofs  mfsetup  mgtransfer  smoother  vcycle
-  14155776  0.347457  0.02424084  0.03346427  0.0105426  0.0108817  0.0035033
-  28311552  0.35134  0.0215024  0.0340963  0.0095201  0.010616  0.0035887
-  56623104  0.41577  0.0243593  0.0432297  0.011557  0.011667  0.0041244
-  113246208  0.42172  0.0323919  0.0427806  0.012983  0.011834  0.0043853
-  226492416  0.43565  0.0404079  0.0421606  0.012867  0.017305  0.0056340
-  452984832  0.5055  0.0500101  0.0562977  0.017739  0.022763  0.0061992
-  905969664  0.54552  0.065865  0.0641994  0.019445  0.037431  0.0087932
-  1811939328  0.5672  0.104909  0.080807  0.025395  0.063548  0.0133252
-  3623878656  0.65541  0.165071  0.129717  0.042294  0.12644  0.0218619
-  7247757312  0.74521  0.251417  0.221072  0.073314  0.21807  0.0339264
-  14495514624  0.84789  0.403463  0.36894  0.11425  0.4091  0.0669798
-  28991029248  0.91983  0.52435  0.5363  0.14189  0.79178  0.1322448
-  57982058496  1.0339  0.87448  0.93134  0.23863  1.5896  0.2539445
-  115964116992  1.2667  1.46016  1.70806  0.44101  3.1409  0.4956625
-  231928233984  1.7597  2.58121  3.3741  0.77624  6.2628  0.9857200
-}\tableinit
+\draw (0) -- (1) -- (2) -- (0);
+\draw (3) -- (4) -- (5) -- (3);
+\draw (0) -- (3);
+\draw (1) -- (4);
+\draw (2) -- (5);
 
-\pgfplotstableread{
-  dofs  grid  distdofs  mfsetup  mgtransfer  smoother  vcycle
-  14155776  2.0148  0.9086  0.433886  1.3099  0.010685  0.0035033
-  28311552  1.8746  0.91078  0.576777  1.3093  0.010752  0.0035887
-  56623104  2.0924  0.98058  0.574183  1.4459  0.011831  0.0041244
-  113246208  2.3788  1.22025  0.547492  1.7919  0.011979  0.0043853
-  226492416  2.1254  1.50329  0.839219  1.7832  0.017819  0.0056340
-  452984832  2.4325  2.10171  0.711708  2.0263  0.023393  0.0061992
-  905969664  3.8911  3.58355  1.08478  2.5844  0.045697  0.0087932
-  1811939328  4.1803  4.379  0.784804  1.8947  0.061552  0.0133252
-  3623878656  2.6654  5.6073  0.833896  1.8912  0.1188  0.0218619
-  7247757312  2.7422  7.8463  0.741733  1.8477  0.21291  0.0339264
-  14495514624  2.765  9.9848  0.99218  1.8248  0.40665  0.0669798
-  28991029248  3.2901  15.0526  1.5124  2.6723  0.81013  0.1322448
-  57982058496  3.1927  21.0562  1.72831  2.1998  1.5905  0.2539445
-  115964116992  4.1485  31.0087  2.67998  2.9091  3.2009  0.4956625
-  231928233984  4.1787  47.195  4.2821  3.9558  6.3362  0.9857200
-}\tableinitold
+\end{tikzpicture}
+\begin{tikzpicture}[scale=1.5]
 
-\begin{figure}
-  \begin{tikzpicture}
-    \begin{loglogaxis}[
-        width=0.51\textwidth,
-        height=0.38\textwidth,
-        xlabel={\# DoFs},
-        ylabel={time [s]},
-        title={9.1 release},
-        xtick={1.4e7,5.7e7,2.3e8,9.1e8,3.6e9,1.4e10,5.8e10,2.3e11},
-        xticklabels={1.4$\times 10^7$,5.7$\times 10^7$,2.3$\times 10^8$,9.1$\times 10^8$,3.6$\times 10^9$,1.4$\times 10^{10}$,5.8$\times 10^{10}$,2.3$\times 10^{11}$},
-        tick label style={font=\scriptsize},
-        xticklabel style={rotate=25,anchor=north east},
-        label style={font=\scriptsize},
-        legend style={font=\scriptsize},
-        %legend to name=legend:scalingMG,
-        %legend cell align=left,
-        %legend columns = 3,
-        ymin=2e-3,ymax=8e1,
-        grid, thick]
-      \addplot table[x index = 0, y index={1}] {\tableinitold};
-      \addplot[red,mark=square*] table[x index = 0, y index={2}] {\tableinitold};
-      \addplot[gnuplot@green,mark=otimes] table[x index = 0, y index={3}] {\tableinitold};
-      \addplot[gnuplot@lightblue,mark=triangle] table[x index = 0, y index={4}] {\tableinitold};
-      \addplot[gnuplot@purple,mark=diamond] table[x index = 0, y index={5}] {\tableinitold};
-      \addplot[black,mark=x] table[x index = 0, y index={6}] {\tableinitold};
-    \end{loglogaxis}
-  \end{tikzpicture}
-  \hfill
-  \begin{tikzpicture}
-    \begin{loglogaxis}[
-        width=0.51\textwidth,
-        height=0.38\textwidth,
-        xlabel={\# DoFs},
-        ylabel={time [s]},
-        title={9.2 release},
-        xtick={1.4e7,5.7e7,2.3e8,9.1e8,3.6e9,1.4e10,5.8e10,2.3e11},
-        xticklabels={1.4$\times 10^7$,5.7$\times 10^7$,2.3$\times 10^8$,9.1$\times 10^8$,3.6$\times 10^9$,1.4$\times 10^{10}$,5.8$\times 10^{10}$,2.3$\times 10^{11}$},
-        tick label style={font=\scriptsize},
-        xticklabel style={rotate=25,anchor=north east}, thick,
-        label style={font=\scriptsize},
-        legend style={font=\scriptsize},
-        legend to name=legend:init,
-        legend cell align=left,
-        legend columns = 6,
-        ymin=2e-3,ymax=8e1,
-        grid]
-      \addplot table[x index = 0, y index={1}] {\tableinit};
-      \addlegendentry{create mesh};
-      \addplot[red,mark=square*] table[x index = 0, y index={2}] {\tableinit};
-      \addlegendentry{enumerate (mg) dofs};
-      \addplot[gnuplot@green,mark=otimes] table[x index = 0, y index={3}] {\tableinit};
-      \addlegendentry{init matrix-free};
-      \addplot[gnuplot@lightblue,mark=triangle] table[x index = 0, y index={4}] {\tableinit};
-      \addlegendentry{init GMG transfer};
-      \addplot[gnuplot@purple,mark=diamond] table[x index = 0, y index={5}] {\tableinit};
-      \addlegendentry{init smoother};
-      \addplot[black,mark=x] table[x index = 0, y index={6}] {\tableinit};
-      \addlegendentry{GMG V-cycle};
-    \end{loglogaxis}
-  \end{tikzpicture}
-  \\
-  \strut\hfill\pgfplotslegendfromname{legend:init}\hfill\strut
-  \caption{\it Comparison of initialization costs of various data structures in the 9.1 release (left) and the new 9.2 release (right) when run on 49,152 MPI ranks.}
-  \label{fig:init_costs}
+\coordinate (0) at (0,0,1);
+\coordinate (1) at (1,0,1);
+\coordinate (2) at (0,0,0);
+\coordinate (3) at (1,0,0);
+
+\coordinate (4) at (0,1,1);
+\coordinate (5) at (1,1,1);
+\coordinate (6) at (0,1,0);
+\coordinate (7) at (1,1,0);
+
+\coordinate  (8) at (0,0,0.5);
+\coordinate  (9) at (1,0,0.5);
+\coordinate (10) at (0.5,0,1);
+\coordinate (11) at (0.5,0,0);
+\coordinate (12) at (0.5,0,0.5);
+
+\coordinate (13) at (0,1,0.5);
+\coordinate (14) at (1,1,0.5);
+\coordinate (15) at (0.5,1,1);
+\coordinate (16) at (0.5,1,0);
+\coordinate (17) at (0.5,1,0.5);
+
+
+\coordinate (18) at (0,0.5,1);
+\coordinate (19) at (1,0.5,1);
+\coordinate (20) at (0,0.5,0);
+\coordinate (21) at (1,0.5,0);
+\coordinate (22) at (0,0.5,0.5);
+\coordinate (23) at (1,0.5,0.5);
+\coordinate (24) at (0.5,0.5,1);
+\coordinate (25) at (0.5,0.5,0);
+\coordinate (26) at (0.5,0.5,0.5);
+
+
+
+\foreach \i in {0,1,2,3,4,5,6,7}
+    \fill (\i) circle (1.3pt) node [below] {};
+    
+\foreach \i in {8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26}
+    \draw (\i) node[cross] {};
+
+
+\draw (0) -- (1) -- (3) -- (2) -- (0);
+\draw (4) -- (5) -- (7) -- (6) -- (4);
+\draw (0) -- (4);
+\draw (1) -- (5);
+\draw (2) -- (6);
+\draw (3) -- (7);
+
+\end{tikzpicture}
+
+\caption{All reference cell in 2D and 3D with the support point indicated both for linear ($\bullet$) and quadratic ($\times$) shape functions.}
+
 \end{figure}
 
-
-As part of this effort, we ran benchmarks on the TACC Frontera system, where we were
-able to apply the matrix-free geometric multigrid framework to a variable viscosity
-Stokes system and achieved weak and strong scaling up to 114K MPI ranks with up to
-\num{2.1e11} unknowns. This is likely the largest block system currently solved with
-\dealii{} and required various optimizations
-and fixes on top of the ones mentioned above:
-(i) Bug fixes to concurrent point to point communications.
-(ii) Fixes to multigrid transfer with adaptive refinement and more than \num{4e9} unknowns.
-(iii) Fixes to index sets in block indices with more than \num{4e9} unknowns.
-(iv) Fixes to computations with more than \num{4e9} active cells.
-(v) Implementation of IDR(s) solvers to reduce memory overhead.
-For more details, see \cite{clevenger_stokes19}.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{Better support for parallel $hp$-adaptive algorithms}
-\label{subsec:hp}
-
-Since the previous release, \dealii{} has had support for $hp$-adaptive finite element methods
-on distributed memory systems \cite{dealII91}. We implemented the bare functionality
-for $hp$-adaptive methods with the objective to offer the greatest flexibility in
-their application. Here, reference finite elements still had to be assigned manually
-to each cell, which may not lead to an optimal mesh and is tedious.
-
-With the current release, $hp$-adaptive finite element methods have been further
-expanded: New features like decision strategies have been added and the user interface
-has been overhauled, effectively making $hp$-methods more attractive to use. We introduced
-many new functions that automatize the general workflow for applying $hp$-decision
-strategies, which run on top of the previous low-level implementation for both serial
-and parallel applications.
-
-The interface is now as simple to use as the one for $h$-adaptive mesh refinement.
-Consider the following (incomplete) listing as an example: We estimate both error and
-smoothness of the finite element approximation. Further, we flag certain fractions of
-cells with the highest and lowest errors for refinement and coarsening, respectively
-(here: 30\%/3\%). From those cells listed for adaptation, we designate a subset
-for $h$- and $p$-adaptation. The parameters of the corresponding
-\texttt{hp::Refinement} function specify the fraction of cells to be $p$-adapted from
-those subsets flagged for refinement and coarsening, respectively (here: 90\%/80\%),
-while the remaining fraction will be $h$-adapted (here: 10\%/20\%).
-\begin{c++}
-Vector<float> estimated_error_per_cell(n_active_cells);
-KellyErrorEstimator::estimate(
-  dof_handler, ..., solution, estimated_error_per_cell, ...);
-GridRefinement::refine_and_coarsen_fixed_number(
-  triangulation, estimated_error_per_cell, 0.3, 0.03);
-
-Vector<float> estimated_smoothness_per_cell(n_active_cells);
-SmoothnessEstimator::Legendre::coefficient_decay(
-  ..., dof_handler, solution, estimated_smoothness_per_cell);
-hp::Refinement::p_adaptivity_fixed_number(
-  dof_handler, estimated_smoothness_per_cell, 0.9, 0.8);
-hp::Refinement::choose_p_over_h(dof_handler);
-
-triangulation.execute_coarsening_and_refinement();
-\end{c++}
-
-In particular, we implemented decision strategies based on refinement history and
-smoothness estimation, and made sure that they work for refinement as well as
-coarsening in terms of $h$- and $p$-adaptation in serial and parallel applications.
-
-The former relies on knowing an estimate for the upper error bound \cite[Thm.~3.4]{BabuskaSuri1990}.
-For successive refinements, we can predict how the error will change based on
-current error estimates and adaptation flags. In the next refinement cycle, these
-predicted error estimates allow us to decide whether the choice of adaptation in
-the previous cycle was justified, and provide a criterion for the choice in the next
-cycle \cite{MelenkWohlmuth2001}.
-
-In general, $p$-refinement is favorable over $h$-refinement in smooth regions of
-the finite element approximation \cite[Thm.~3.4]{BabuskaSuri1990}. Thus, estimating
-its smoothness provides a suitable decision indicator for $hp$-adaptation. For this
-purpose, we express the finite element approximation in an orthogonal
-basis of increasing frequency, and consider the decay of their expansion
-coefficients as the estimation of smoothness. This has been implemented for both
-Fourier coefficients \cite{BangerthKayserHerold2007} and Legendre coefficients
-\cite{Mavriplis1994,HoustonSeniorSueli2003,HoustonSueli2005,EibnerMelenk2007}.
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{Support for particle-based methods}
-\label{subsec:particles}
-
-Support for particles was originally introduced in \dealii{} version 9.0. These
-particles can be used as passive tracers, or as part of more complex
-models such as those based on Particle-In-Cells (PIC) approaches \cite{GLHPB18}.
-
-With the current release, support for particles has been further expanded: New parallel
-insertion mechanisms and a basic interface to post-process particles have
-been added, effectively making their usage more flexible and enabling a larger
-range of use cases (such as the immersed boundaries in step-70, see below).
-
-Through the addition of the \texttt{Particles::ParticleHandler::insert\_global\_particles()} member function,
-particles can now be inserted in parallel from a vector of points even if these points do not lie
-on the subdomain from which the insertion is called. This operation requires extensive
-communication between the processes to locate   the MPI process that
-owns the cell in which the particle
-is located. However, it is made significantly faster  through the usage of bounding boxes
-that provide a coarse description of the geometrical shape of each subdomain.
-This function also takes care of transferring the properties attached to the particles to their new owner.
-This new capability enables particle generators that insert particles at the location
-of the support points (\texttt{Particles::Generator::dof\_support\_points()}) and at the quadrature points (\texttt{Particles::Generator::quadrature\_points()}) of a
-possibly non-matching triangulation. Consequently, complex particle patterns can be inserted
-using unstructured grids generated outside of \dealii{}.
-
-To visualize the motion of particles, the \texttt{Particles::DataOut} class was added to the library.
-
-
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{Improved performance of the symbolic differentiation framework}
-\label{subsec:symbdiff}
-
-In the previous release we added support for symbolic expressions, leveraging the
-SymEngine library \cite{symengine-web-page}.
-Although effective, evaluating lengthy expressions could be a bottleneck as this
-was performed using dictionary-based substitution.
-We have improved on this by implementing a \texttt{BatchOptimizer} class in the
-namespace \texttt{Differentiation::SD} that collects several \texttt{Expression}s
-and transforms them in such a way that the equivalent result is returned through
-a quicker code path.
-This may be done by simply using common subexpression elimination (CSE) for the
-dictionary-based expressions, by transformation to a set of nested
-\texttt{std::function} objects (the equivalent to \texttt{SymPy}'s ``lambdify'', with or
-without using CSE), or by offloading these expressions to the \texttt{LLVM}
-just-in-time (JIT) compiler.
-Although each of these features is implemented and tested in the SymEngine
-library itself, the \texttt{BatchOptimizer} class provides both a uniform
-interface to their classes and a convenient interface for scalar expressions,
-as well as tensorial expressions formed using the \texttt{deal.II} tensor and
-symmetric tensor classes.
-It, like the \texttt{Expression} class, is also serializable.
-
-The way the batch optimizer may be employed within a user's code is shown
-in the pseudo-code below.
-As per usual, one would first define some independent variables, and
-subsequently compute some symbolic expressions that are dependent on these
-independent variables.
-These expression could be, for example, scalar  expressions or tensors of
-expressions.
-Instead of evaluating these expressions directly, the user would now create an
-optimizer to evaluate the dependent functions.
-In this example, the selected arithmetic type numerical result will be of type
-\texttt{double}, and the \texttt{LLVM} JIT optimizer will be invoked.
-It will employ common subexpression elimination and aggressive optimizations
-during compilation.
-The user then informs the optimizer of all of the independent variables and the
-dependent expressions, and invokes the optimization process.
-This is an expensive call, as it determines an equivalent code path to evaluate
-all of the dependent functions at once.
-However, in many cases each evaluation has significantly less computational cost
-than evaluating the symbolic expressions directly.
-Evaluation is performed when the user constructs a substitution map, giving each
-independent variable a numerical representation, and passes those to the
-optimizer.
-After this step, the numerical equivalent of the individual dependent expressions
-may finally be retrieved from the optimizer.
-
-\begin{c++}
-using namespace Differentiation::SD;
-
-const Expression x("x");
-const Expression y("y");
-...
-const auto f = calculate_f(x, y, ...); // User function
-const auto g = calculate_g(x, y, ...); // User function
-...
-
-BatchOptimizer<double> optimizer (OptimizerType::llvm,
-                                  OptimizationFlags::optimize_all);
-optimizer.register_symbols(x, y, ...);
-optimizer.register_functions(f, g, ...);
-optimizer.optimize();
-
-const auto substitution_map
-  = make_substitution_map({x, ...}, {y, ...}, ...);
-optimizer.substitute(substitution_map);
-
-const auto result_f = optimizer.evaluate(f);
-const auto result_g = optimizer.evaluate(g);
-\end{c++}
-
-This expense of invoking the optimizer may be offset not only by
-the number of evaluations performed, but also by the amount of reuse each
-instance of a \texttt{BatchOptimizer} has.
-In certain circumstances, this can be maximized by generalizing the way in which
-the dependent expressions are formulated.
-For example, in the context of constitutive modelling the material coefficients
-may be made symbolic rather than encoding these into the dependent expressions
-as numerical values.
-The optimizer may then be used to evaluate an entire family of constitutive laws,
-and not a specific one that describes the response of a single material.
-Thereafter, serializing the optimizer instance and reloading the contents during
-subsequent simulations permits the user to skip the optimization process entirely.
-Serialization also enables these complex expressions to be compiled offline.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\subsection{Advances in SIMD capabilities and the matrix-free infrastructure}
-\label{subsec:mf}
-
-%\begin{itemize}
-%\item ECL
-%\item VectorizedArrayType
-%\end{itemize}
-
-The class \texttt{VectorizedArray<Number>} is a key component to achieve
-the high node-level performance of the matrix-free algorithms in
-\dealii{}~\cite{KronbichlerKormann2012, KronbichlerKormann2019}. It is a
-wrapper class around a short vector of $n$ entries of type \texttt{Number}
-and maps arithmetic operations to appropriate
-single-instruction/multiple-data (SIMD) concepts by intrinsic functions.
-The class \texttt{VectorizedArray} has been made more user-friendly in this
-release by making it compatible with the STL algorithms found in the header
-\texttt{<algorithm>}. The length of the  vector can now be queried by
-\texttt{VectorizedArray::size()} and its underlying number type by
-\texttt{VectorizedArray::value\_type}. The \texttt{VectorizedArray} class
-now supports range-based iteration over its entries. In addition \dealii{}
-now supports ternary operations on vectorized data, where for a given
-binary comparison operation a true or false value is selected. For example,
-the vectorized equivalent of \texttt{(left < right) ? true\_value :
-  false\_value} can be expressed as
-\begin{c++}
-auto result = compare_and_apply_mask<SIMDComparison::less_than>(
-left, right, true_value, false_value);
-\end{c++}
-which compares every element of the vectorized array individually and
-selects the corresponding value from the \texttt{true\_value}, or
-\texttt{false\_value} array.
-
-In previous \dealii{} releases, the vector length was set at compile time
-of the library to match the highest value supported by the given processor
-architecture. Now, a second optional template argument can be specified as
-\texttt{VectorizedArray<Number, size>}, where \texttt{size} explicitly
-controls the vector length within the capabilities of a particular
-instruction set. (A full list of supported vector lengths is presented in
-Table~\ref{tab:vectorizedarray}.) This allows users to select the vector
-length/ISA and, as a consequence, the number of cells to be processed at
-once in matrix-free operator evaluations. For example, the \dealii{}-based
-library \texttt{hyper.deal}~\cite{munch2020hyperdeal}, which solves the 6D
-Vlasov--Poisson equation with high-order discontinuous Galerkin methods
-(with more than a thousand degrees of freedom per cell), constructs a
-tensor product of two \texttt{MatrixFree} objects of different SIMD-vector
-length in the same application and benefits---in terms of performance---by
-the possibility of decreasing the number of cells processed by a single
-SIMD instruction.
-
-
-\begin{table}
-  \caption{\it Supported vector lengths of the class \texttt{VectorizedArray} and
-    the corresponding instruction-set-architecture extensions. }\label{tab:vectorizedarray}
+\begin{table}[!h]
+  \caption{\it List of new scalar \texttt{FiniteElement} classes for the new
+  reference-cell types. Vectorial elements can be constructed based on these
+  via \texttt{FE\_Systems}.}\label{tab:vectorizedarray}
   \centering
-  \begin{tabular}{ccc}
+  \begin{tabular}{cccc}
     \toprule
-    \textbf{double}            & \textbf{float}             & \textbf{ISA}         \\
+    \textbf{reference cell} & \textbf{finite element} & \textbf{dimension} & \textbf{degree}\\
     \midrule
-    VectorizedArray<double, 1> & VectorizedArray<float, 1>  & (auto-vectorization) \\
-    VectorizedArray<double, 2> & VectorizedArray<float, 4>  & SSE2/AltiVec         \\
-    VectorizedArray<double, 4> & VectorizedArray<float, 8>  & AVX/AVX2             \\
-    VectorizedArray<double, 8> & VectorizedArray<float, 16> & AVX-512              \\
+    simplex (line, triangle, tetrahedron) & FE\_P, FE\_DGP  & 1--3 & 1--2 \\
+    pyramid & FE\_PyramidP, FE\_PyramidDGP  & 3 & 1 \\
+    wedge & FE\_WedgeP, FE\_WedgeDGP  & 3 & 1--2 \\
     \bottomrule
-  \end{tabular}
-
-  \caption{\it Comparison of relevant SIMD-related classes in \dealii{} and \texttt{C++23}.}\label{tab:simd}
-  \centering
-  \begin{tabular}{cc}
-    \toprule
-    \textbf{VectorizedArray (\dealii{})} & \textbf{std::simd (\texttt{C++23})}                \\
-    \midrule
-    VectorizedArray<Number>              & std::experimental::native\_simd<Number>            \\
-    VectorizedArray<Number, size>        & std::experimental::fixed\_size\_simd<Number, size> \\ \bottomrule
   \end{tabular}
 \end{table}
 
-The new interface of \texttt{VectorizedArray} also enables replacement
-by any type with a matching interface. Specifically, this prepares
-\dealii{} for the \texttt{std::simd} class that is slated to become
-part of the \texttt{C++23} standard.
-Table~\ref{tab:simd} compares the \dealii{}-specific SIMD classes and
-the equivalent \texttt{C++23} classes. These changes also prepare for specialized
-code paths exploiting
-vectorization within an element, see~\cite{KronbichlerKormann2019}.
+The current release of \dealii adds support for simplex meshes (consisting of triangles in 2D; tetrahedra in 3D) and mixed meshes (consisting of triangles and/or 
+quadrilaterals in 2D; tetrahedra, pyramids, wedges, and/or hexahedra in 3D). 
+Many available mesh generation tools produce simplex meshes; while users of \dealii used to have to pre-process such meshes and convert them to pure hex meshes, users
+can now directly work with simplex meshes.
 
-%We welcome the standardization of the SIMD
-%parallelization paradigm in C++ and intend to replace step by step our own
-%wrapper class, which has been continuously developed over the last decade. We
-%would like to emphasize that the work invested in this class was not in vain,
-%since many performance-relevant utility functions implemented with \texttt{VectorizedArray} in mind (e.g., \texttt{vectorized\_load\_and\_transpose}
-%and \texttt{vectorized\_transpose\_and\_store}) will be still used, since they
-%have not become part of the standard.
+\subsubsection{Refactoring of internal data structures}
 
-%Further additions to the \texttt{MatrixFree} infrastructure consist of:
-%\begin{itemize}
-%\item a new variant of \texttt{MatrixFree::cell\_loop()}: It takes two
-%\texttt{std::function} objects with ranges on the locally owned degrees of freedom, one
-%with work to be scheduled before the cell operation first touches some
-%unknowns and another with work to be executed after the cell operation last
-%touches them. The goal of
-%these functions is to bring vector operations close to the time when the
-%vector entries are accessed by the cell operation, which increases the cache
-%hit rate of modern processors by improved temporal locality.
-%\item a new form of loop \texttt{MatrixFree::loop\_cell\_centric()}: This
-%kind of loop can be used in the context of discontinuous Galerkin methods,
-%where both cell and face integrals have to be evaluated. While in the case of
-%the traditional \texttt{loop}, cell and face integrals have been performed
-%independently, the new loop performs all cell and face integrals of a cell in
-%one go. This includes that each face integral has to be evaluated twice, but
-%entries have to be written into the solution vector only once with improved
-%data locality. Previous publications based on \dealii{} have shown the
-%relevance of the latter aspect for reaching higher performance.
-%\end{itemize}
+To be able to enable simplex support, we performed a major refactoring of the internal data structures of \dealii. In particular, the \texttt{Triangulation} class and 
+the \texttt{DoFHandler} class have undergone large changes. 
 
+The template parameters of the internal data structures of \texttt{Triangulation}
+have been removed and the type of each cell and of each face is stored. The function,
+\texttt{Triangulation::create\_triangulation()} which converts a given list of
+cells and vertices to the internal data structures, has been rewritten 
+inspired by \citep{X} and a speed-up of up to 5 has been reached. Minor adjustments 
+have been made to \texttt{parallel::shared::Triangulation} and \texttt{parallel::fullydistributed::Triangulation}, such that, 
+simplex meshes can be processed also in parallel.
+
+The internal data structures of \texttt{DoFHandler} used to be hard-coded for pure
+hypercube meshes, while the \texttt{hp::DoFHandler} used to be built around
+CRS-like data structures. Due to the need of CRS data structures in
+\texttt{DoFHandler} to be able to support more general meshes, we have merged
+\texttt{hp::DoFHandler} into the \texttt{DoFHandler}. The class \texttt{hp::DoFHandler}, which is now a dummy derivation of \texttt{DoFHandler}, currently only exist for compatibility reasons. For
+more details see Subsection~\ref{TODO}.
+
+\subsubsection{Generating meshes }
+
+The most obvious way to generate a simplex or a mixed mesh is to read the mesh from a file
+generated by an external mesh generator. Currently, we support the 
+file formats \texttt{VTK}, \texttt{MSH}, \texttt{EXODUS II}.
+
+Alternatively, on can create a pure-hypercube mesh with the known functions
+in the \texttt{GridGenertor} namespace and convert the obtained to a
+pure simplex mesh with the function \texttt{GridGenerator::\allowbreak GridGenerator::\allowbreak convert\_hypercube\_to\_simplex\_mesh()}.
+
+\subsubsection{Simplex mesh}
+
+After having created a triangulation, one can proceed as usual in the case of
+a pure simplex mesh by selecting an appropriate mapping, finite element,
+quadrature class:
+
+\begin{c++}
+Simplex::FE_P<dim, spacedim> fe(degree);
+MappingFE<dim, spacedim> mapping(Simplex::FE_P<dim, spacedim>(1));
+Simplex::QGauss<dim> quad(degree + 1);
+
+DoFHandler<dim> dof_handler(tria);
+dof_handler.distribute_dofs(fe);
+
+FEValues<dim, spacedim> fe_values(mapping, fe, quad, flags);
+\end{c++}
+A list of finite-element classes is provided in Table~\ref{TODO}. Currently,
+only linear iso-parametric mapping (\texttt{MappingFE}) is available, which take one of the 
+finite elements mentioned before. For quadrature, the classes \texttt{QGauss}, 
+\texttt{QGaussPyamid}, and \texttt{QGaussWedge} from the \texttt{simplex} namespace are
+available.
+
+\subsubsection{Mixed mesh}
+For mixed meshes, concepts known from the hp context have been applied: 
+different cell types different finite-element classes are assigned. In the 
+case of a 2D mixed mesh, which can only consists of triangles and
+quadrilaterals, the finite element defined on a triangle (e.g., \texttt{Simplex::FE\_P})
+and on a quadrilateral (e.g., \texttt{FE\_Q}) can be collected in a \texttt{hp::FECollection}:
+
+\begin{c++}  
+hp::FECollection<dim, spacedim> fe
+  {Simplex::FE_P<dim, spacedim>(degree), FE_Q<dim, spacedim>(degree)};
+\end{c++}
+
+Similarly, \texttt{hp::QCollection} and \texttt{hp::MappingCollection} can be used
+to construct appropriate collections.
+
+Each cell the right active finite-element index, which points to the right 
+finite element for that cell, has to be assigned.
+
+\begin{c++}  
+DoFHandler<dim> dof_handler(tria);
+
+for (const auto &cell : dof_handler.active_cell_iterators())
+  switch(cell->reference_cell_type())
+    {
+      case ReferenceCell::Type::Tri:  cell->set_active_fe_index(0); break;
+      case ReferenceCell::Type::Quad: cell->set_active_fe_index(1); break;
+      // 3D (Tet, Pyramid, Wedge, Hex) not shown
+      default: Assert(false, ExcNotImplemented());
+    }
+
+dof_handler.distribute_dofs(fe);
+\end{c++}
+
+\subsubsection{Practical implications} 
+
+The introduction of simplex and mixed meshes leads to some implications
+on the user if these features should be used. For instance, each cell might have a different type with 
+different number of vertices, lines, and faces, which cannot be a 
+compile constant anymore. These informations used to be queried from
+the \texttt{GeometryInfo} class. As a mean not to use this class, we have extended
+relevant classes, e.g., \texttt{TriaAccessor} or \texttt{TriaCellAccessor},
+with useful functions like \texttt{n\_vertices()}, \texttt{n\_lines()}, or
+\texttt{n\_faces()}, so that users can simply write
+\begin{c++}
+for(const auto & cell : tria.active_cell_iterators())
+  for(unsigned int f = 0; f < cell->n_faces(); ++f)
+    (void) cell->face(f);
+\end{c++}
+Alternately, one can use an iterator-based approach to loop over all faces
+of a cell, introduced in the last release. This function has been adjusted: 
+\begin{c++}
+for(const auto & cell : tria.active_cell_iterators())
+  for(const auto & face : cell->face_iterators())
+    (void) face;
+\end{c++}
+Furthermore, the number of degrees of freedom might differ between cells so that
+local data storage units needed for assembly might need to be resized for each 
+cell - as already good practice in the hp context:
+\begin{c++}
+std::vector<double> local_rhs;
+for(const auto & cell : tria.active_cell_iterators())
+  {
+    hp_fe_values.reinit(cell);
+    const auto & fe_values = hp_fe_values.get_present_fe_values();
+    local_rhs.resize(fe_values.n_dofs_per_cell());
+  }
+\end{c++}
+
+
+What is true for cells is also true for faces in 3D: faces can be either triangles
+or quadrilaterals. This is the case even if no mixed mesh is used. As a consequence, some functions, e.g. \texttt{FiniteElementData::n\_dofs\_per\_face()} have been extended with a new optional argument for the face number.
+
+We tried to provide utility functions where possible so that users do not need to access a \texttt{GeometryInfo}-like data structure. However, internally these functions rely on the \texttt{ReferenceCell::\allowbreak internal::\allowbreak Info} classes, which are similarly structured as \texttt{GeometryInfo} and even use for hypercube cells it. Users can query the reference-cell type of geometric entity via:
+\begin{c++}
+const auto reference_cell_type = cell->reference_cell_type();
+\end{c++}
+and can access the relevant struct describing the cell or i-th face via:
+\begin{c++}
+ReferenceCell::internal::Info::get_cell(reference_cell_type);
+ReferenceCell::internal::Info::get_face(reference_cell_type, i);
+\end{c++}
+
+
+Furthermore, it is crucial to use the right mapping-FE-quadrature family 
+for the right cell type. In particular, this means that users cannot 
+rely on default parameters regarding mapping and/or quadrature in the 
+context of simplex meshes, since these are defined for hypercube cells.
+We recommend to choose at a single central place the needed mapping,
+FE, and quadrature rules and pass these throughout the program.
+
+\subsubsection{Matrix-free support}
+
+We provide matrix-free support both for simplex and mixed meshes both for
+continuous and discontinuous element. From a user perspective, the setup has
+has hardly changed:
+%\begin{c++}
+%Simplex::QGauss<dim> quad(degree + 1)
+%
+%MatrixFree matrix_free;
+%matrix_free.reinit(mapping, dof_handler, constraints, quad);
+%\end{c++}
+Instead of providing a 1D quadrature rule that is extended to higher dimensional
+space via tensor product, one provides d-dimensional quadrature rules. To be
+able to use \texttt{FEEvaluation} and \texttt{FEFaceEvaluation} one can not use
+the templated versions: the number of degrees of freedom and the number of quadrature points are determined at runtime. More details can be found in Subsection~\ref{subsec:mf}.
+
+Internally, we do not use any advance techniques for evaluating values and 
+gradients at the quadrature points, as we do for tensor-product elements. 
+However, this is for now acceptable since only low-order elements are 
+supported. 
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Advances in the multigrid infrastructure}
+\label{subsec:mg}
+
+Until now, \dealii has only supported local smoothing multigrid algorithms~\citep{TODO}. With release 9.3, the support for global coarsening in a geometric and a polynomial sense has been added, which promise less iteration numbers and better parallel scalability with the disadvantage of having to deal with hanging nodes during smoothing and overall more work per iteration.
+
+Global-coarsening algorithms~\citep{TODO} either coarsen each cell or reduce the the polynomial degree of the finite element of each cell and hereby obtains a new---coarser---level with less unknowns. Repeating such kind of coarsening results in a sequence of multigrid levels.
+
+The transfer between two levels is encoded in \texttt{MGTwoLevelTransfer} which can be set up via the functions \texttt{MGTwoLevelTransfer::\allowbreak reinit\_\allowbreak geometric\_\allowbreak transfer()} or \texttt{MGTwoLevelTransfer::\allowbreak reinit\_\allowbreak polynomial\_\allowbreak transfer()} for given
+\texttt{DoFHandler} and \texttt{AffineConstraint}s. The transfer operators
+between two levels can be collected in a single object---
+\texttt{MGTransferGlobalCoarsening}---which can be used just as \texttt{MGTransferMatrixFree} and can be passed to the actual \texttt{Multigrid}
+algorithm.
+
+
+The user is responsible for setting up the levels (including, the operators,
+smoothers). Please note that currently only between active levels can global coarsening performed. The user can use utility
+functions from the \texttt{MGTransferGlobalCoarseningTools} namespace. For 
+constructing the diagonal or the system matrix for a matrix-free operator,
+needed for the smoother or the coarse-grid solver,
+the functions \texttt{create\_diagonal()} and \texttt{create\_matrix()} from
+the \texttt{MatrixFreeTools} namespace can be used (see also Subsection~\ref{subsec:mf}).
+
+
+The usage of the new transfer operators, incl. of some of the utility functions, in the context of p-multigrid for hp problems is demonstrated in the new tutorial \texttt{step-75} (see also Subsection~\ref{subsec:steps}).
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Advances in the matrix-free infrastructure}
+\label{subsec:mf}
+
+\subsubsection{Precompilation of evaluation kernels}
+
+The classes \texttt{FEEvaluation} and \texttt{FEFaceEvaluation} are highly
+templated to reach high performance. In particular, the template parameters include
+the polynomial degree of the finite element and the number of 1D quadrature points.
+For applications codes that relied on operators of many different degrees (e.g. because
+they use p-multigrid or hp algorithm) this
+meant a long compilation time. 
+
+In the current release, we have improved the \texttt{FEEvaluation} classes, which do
+not rely on the template parameters \texttt{degree} and \texttt{n\_q\_points}:
+\begin{c++}
+FEEvaluation<dim, -1, 0, n_components, Number, VectorizedArrayType>
+  phi(range, dofhandler_index, quadrature_index, first_selected_component);
+\end{c++}
+The meaning meaning of the new first argument of the first argument is 
+discussed in Subsubsection~\ref{TODO}.
+These classes select at run time for common low and medium polynomial degree/quadrature combinations efficient precompiled implementations and default to non-templated 
+evaluation kernels else. 
+
+In the case that even higher polynomial degrees are needed, one can precompile these
+(\texttt{FEEvaluationFactory}, \texttt{FEFaceEvaluationFactory}, \texttt{CellwiseInverseMassFactory}) in the application code for needed \texttt{degree}s
+and \texttt{VectorizedArrayType}s:
+\begin{c++}
+#define FE_EVAL_FACTORY_DEGREE_MAX 12
+
+#include <deal.II/matrix_free/evaluation_template_factory.templates.h>
+
+DEAL_II_NAMESPACE_OPEN
+template struct dealii::internal::FEEvaluationFactory
+  <dim, VectorizedArrayType::value_type, VectorizedArrayType>;  
+DEAL_II_NAMESPACE_CLOSE
+\end{c++}
+
+\subsubsection{Parallel matrix-free hp implementation}
+
+With release 9.1, large parts of the hp algorithms in \dealii were parallelized so that
+parallel matrix-based simulations could be performed with the hp infrastructure. In this
+release, we have extended the setup routines of \texttt{MatrixFree} so that it now also
+provides a parallel hp support.
+
+Until now, the \texttt{FEEvaluation} classes used the template parameters \texttt{degree} and \texttt{n\_q\_points} to select the correct active hp fe and quadrature index and users had 
+to use the function \texttt{MatrixFree::create\_cell\_subrange\_hp()} or
+\texttt{::create\_cell\_subrange\_hp\_by\_index()} to create subranges of cells with 
+the same degree. This lead to hard to read user code with complicated jump tables. 
+
+The creation of subranges is now performed internally and the non-templated versions
+of the \texttt{FEEvaluation} classes are extended for the hp case. To nevertheless determine
+the active hp fe and quadrature index, the current cell/face range has to be provided
+to the constructors of the \texttt{FEEvaluation} classes from which the relevant information
+can be deduced (in particular in simplex case also the face type).
+
+The new \texttt{step-75} presents how to use the new hp-related feature in \texttt{MatrixFree} 
+in the context of a hybrid-multigrid solver.
+
+\subsubsection{MPI-3.0 shared-memory support} 
+\texttt{MatrixFree} and \texttt{LinearAlgebra::distributed::Vector} have been extended with 
+MPI-3.0 shared-memory features. If \texttt{MatrixFree} has been configured by setting
+\texttt{MatrixFree::AdditionalData::communicator\_sm} by a user-provided subcommunicator,
+vectors are created while \texttt{MatrixFree::create\_dof\_vector()} in such a way that the
+memory of processes in this subcommunicator can be accessed, in particular by the
+\texttt{FEEvaluation} classes, and in certain cases no 
+communication is needed. To prevent race-conditions, \texttt{MatrixFree} uses local
+barriers at the beginning and the end of loops.
+
+
+The tutorial \texttt{step-67b} shows its usage in the context of the solution
+of the Euler equations. Here, a speed-up of 27\% could be reached compared to the
+regular version \texttt{step-67}, i.a., by using this feature.
+
+\subsubsection{Miscellaneous}
+
+The namespace \texttt{MatrixFreeTools} has been introduced. It collect various utility
+functions useful in the context of the application of \texttt{MatrixFree}. In particular,
+it contains different functions to extract quantities related to a matrix, e.g., the 
+computation of the diagonal or a matrix with a matrix-free approach.
+
+With version 9.2, we have introduced cell-centric loops. It has been extended to unstructured
+meshes. The tutorial \texttt{step-67b} shows its usage in the context of the solution
+of the Euler equations.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Advances in GPU support}
 \label{subsec:gpu}
 
-For this release, the most noteworthy improvements in GPU support are the
-simplification of the kernel written by user, improvement of error messaging,
-and overlapping of computation and communication when using CUDA-aware MPI with
-the matrix-free framework.
-
-In order to simplify user code, we now recompute
-local degree of freedom and quadrature point indices instead of having the user
-keeping track of them. A new option to overlap computation and communication is
-now available when using CUDA-aware MPI and matrix-free. The underlying idea is
-that only the degrees of freedom (DoFs) on the boundary of the local domain
-require communication. Before evaluating the matrix-free operator at these
-degrees of freedom, we need to communicate ghost DoFs from other
-processors.  Similarly once the operator has been evaluated, we need to update
-the resulting global vector with values from other processors. The strategy that
-we are now using consists in splitting the DoFs into three groups: one group of DoFs
-that are on the local boundary and two groups each owning half of the interior
-DoFs. When evaluating the matrix-free operator, we start the MPI communication
-to get the ghosted DoFs and evaluate the operator on one of the two interior
-DoFs group. When the evaluation is done, we wait for the MPI
-communication to be over, and
-then evaluate the operator on the boundary DoFs group. When this evaluation is
-completed, we start the communication to update the global vector, we evaluate the
-operator on the last group of DoFs, and finally wait for the MPI
-communication to finish.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Expanded use of C++11 facilities}
 \label{subsec:cxx}
-
-Certain types of quantities in a simulation are constants fully known
-at compile time. They can be pre-calculated and stored in the
-compiled executable in order to avoid unnecessary initialization during
-runtime. C++11 and later standards enable such computations by
-marking variables and functions with the \texttt{constexpr} keyword.
-
-This optimization is now enabled for the class templates
-\texttt{Tensor} and \texttt{SymmetricTensor}.
-For instance, the linear mechanical constitutive model for isotropic elastic solids
-uses a constant fourth-order elasticity tensor
-$\mathbb{C} = \lambda \boldsymbol{I} \otimes \boldsymbol{I} + 2 \mu \mathbb{I}$
-which does not depend on the current state of strain.
-This tensor can now be statically initialized by defining it as
-\texttt{constexpr SymmetricTensor<4, dim>}.
-As another example, the lattice vectors in a crystal plasticity model are generally
-constant and known during compilation time, enabling their efficient definition as
-\texttt{constexpr Tensor<1, dim>}.
-
-Declaring variables, functions, and methods as \texttt{constexpr}
-is a C++11 feature that was later expanded by the C++14 standard.
-Thus, parts of the \texttt{constexpr} support in \dealii{} depend on the C++
-standard supported by the compiler used to install the library.
-
-The next release of \dealii{} will require compiler support for the C++14 standard.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -931,142 +826,7 @@ all cells in this way.
 
 In addition, there are a number of new tutorial programs:
 \begin{itemize}
-  \item \texttt{step-47} is a new program that solves the biharmonic
-        equation $\Delta^2 u = f$ with
-        ``clamped'' boundary condition given by $u=g, \partial u/\partial
-          n=h$. This program is based on the $C^0$ interior
-        penalty ($C^0$IP) method for fourth order problems
-        \cite{Brenner2005}. In order to overcome
-        shortcomings of classical approaches, this method uses $C^0$ Lagrange finite
-        elements and introduces ``jump'' and ``average'' operators on
-        interfaces of elements that penalize the jump of the gradient of the
-        solution in order to obtain convergence to the $H^2$-regular
-        solution of the equation.
-
-        The $C^0$IP approach is a modern alternative to classical methods that
-        use $C^1$-conforming elements such as the Argyris
-        element, the Clough-Tocher element and others, all developed in the
-        late 1960s. From a twenty-first century perspective, they can only be
-        described as bizarre in their construction. They are also exceedingly
-        cumbersome to implement if one wants to use general meshes. As a
-        consequence, they have largely fallen out of favor and \dealii{} currently
-        does not contain implementations of these shape functions.
-
-  \item \texttt{step-50} is a program that demonstrates the parallel geometric multigrid features
-  in \dealii{} as described in \cite{ClevengerHeisterKanschatKronbichler2019}.
-  The problem considered is a variable viscosity Laplace equation and it is solved
-  with three different approaches:
-  (i) using a matrix-based geometric multigrid based on Trilinos or
-  PETSc; (ii) using a matrix-free
-  geometric multigrid; (iii) using algebraic multigrid (Trilinos ML). The tutorial
-  demonstrates the superiority of the matrix-free method for the problem under consideration,
-  and shows that, for matrix-based formulations, the performance of algebraic and
-  geometric multigrid methods are roughly comparable.
-
-
-  \item \texttt{step-58} is a program that solves the nonlinear
-        Schr{\"o}dinger equation, which in non-dimensional form reads
-        \begin{align*}
-          - i \frac{\partial \psi}{\partial t}
-          - \frac 12 \Delta \psi
-          + V \psi
-          + \kappa |\psi|^2 \psi
-           & = 0,
-        \end{align*}
-        augmented by appropriate initial and boundary conditions and using
-        an appropriate form for the potential $V=V(\mathbf x)$. The
-        tutorial program focuses on two specific aspects for which this
-        equation serves as an excellent test case: (i) Solving
-        complex-valued problems without splitting the equation into its
-        real and imaginary parts (as \texttt{step-29} does, for
-        example). (ii)~Using operator splitting techniques. The equation is
-        a particularly good test case for this technique because the only
-        nonlinear term, $\kappa |\psi|^2 \psi$, does not contain any
-        derivatives and consequently forms an ODE at each node point, to be
-        solved in each time
-        step in an operator splitting scheme (for which, furthermore, there
-        exists an analytic solution), whereas the remainder of the
-        equation is linear and easily solved using standard finite element
-        techniques.
-
-  \item \texttt{step-65} presents \texttt{TransfiniteInterpolationManifold}, a
-        manifold class that can propagate curved boundary information into the
-        interior of a computational domain by transfinite interpolation \cite{Gordon82}.
-        This manifold is a prototype for many other manifolds in that it is relatively
-        expensive to compute the new points, especially for higher order mappings. Since
-        typical programs query higher-order geometries in a large variety of contexts,
-        the contribution of the mapping to the run time can be significant. As a
-        solution, the tutorial also presents the class \texttt{MappingQCache}, which
-        samples the information of expensive manifolds in the points of a
-        \texttt{MappingQ} and caches it. The tutorial shows that this makes all queries
-        to the geometry very cheap.
-
-  \item \texttt{step-67} is an explicit time integrator for the
-        compressible Euler equations discretized with a high-order discontinuous
-        Galerkin (DG) scheme using the matrix-free infrastructure. Besides the use of
-        matrix-free evaluators for systems of equations and over-integration, it also
-        presents \texttt{MatrixFreeOperators::CellwiseInverseMassMatrix}, a fast implementation
-        of the action of the inverse mass matrix in the DG setting using tensor
-        products. Furthermore, this tutorial demonstrates the usage of new
-        pre and post operations, which can be passed to
-        \texttt{MatrixFree::cell\_loop()}, to schedule operations on sections of vectors close
-        to the matrix-vector product to increase data locality.
-
-  \item \texttt{step-69} presents a first-order scheme solving the compressible
-        Euler equations of gas dynamics with a graph-viscosity stabilization
-        technique. Beside the usual conservation properties of mass, momentum, and
-        total energy, the method also guarantees that the constructed solution
-        obeys pointwise stability constraints (in particular positivity of
-        density and internal
-        energy, and a local minimum principle on the specific entropy). As such
-        \text{step-69} is strictly speaking more a collocation-type discretization
-        than a variational formulation, even though it is implemented with finite
-        elements.
-
-        The time-update at each node requires the evaluation of a right-hand side
-        that depends (nonlinearly) on information from the previous time-step that
-        spans more than one cell. Therefore, assembly loops operate directly on the
-        sparsity graph in order to retrieve information from the entire stencil
-        associated with each node. From a programming perspective, \texttt{step-69}
-        features a number of techniques that are of interest for a wider audience:
-        It discusses a hybrid thread and MPI parallelized scheme with efficient
-        MPI node-local numbering of degrees of freedom. It showcases how to
-        perform asynchronous write-out of results using a background thread with
-        \texttt{std::async}, and discusses a simple but effective checkpointing and
-        restart technique.
-
-  \item \texttt{step-70} solves a fluid structure interaction problem on
-        non-matching parallel distributed triangulations, showing the usage of
-        the \texttt{particles::ParticleHandler} class for two different tasks:
-        (i) to track the position of quadrature points of a non-matching
-        solid grid immersed in a fluid grid, and (ii) to track the position of a
-        collection of massless tracers.
-
-        The program considers a mixing problem in the laminar flow
-        regime. Such problems occur in a wide range of applications ranging
-        from chemical engineering to power generation (e.g. turbomachinery).
-        Mixing problems are particularly hard to solve numerically, because
-        they often involve a container (with fixed boundaries, and possibly
-        complex geometries such as baffles), and one (or more) immersed and
-        rotating impellers, making it difficult to use Arbitrary Lagrangian
-        Eulerian formulations, where the fluid domain – along with the mesh! –
-        is smoothly deformed to follow the deformations of the immersed solid.
-        We show how to solve such problems using a penalization technique
-        where the flow problem is solved in the union of the fluid and solid
-        domain, and the movement of the solid is imposed weakly using a
-        Nitsche-like penalization.
-
-        The \texttt{particles::ParticleHandler} class is used in this context
-        to allow integration of the fluid basis functions on the solid domain
-        (which is immersed and non-matching with regard to the fluid grid). This is
-        achieved by attaching the information required to perform the
-        integration on the solid grid, to the property field of the particles
-        associated with the quadrature points of the solid, and advecting those
-        particles according to the solid velocity. In this program, we
-        externally prescribe rather than solve for the
-        the solid velocity; however,
-        the program can easily be extended to allow for the solution of
-        coupled elasticity equations on the solid domain.
+  \item 
 \end{itemize}
 
 There are also new programs in the code gallery (a collection of
@@ -1074,81 +834,19 @@ user-contributed programs that often solve more complicated problems
 than tutorial programs, and intended as starting points for further
 research rather than as teaching tools):
 \begin{itemize}
-  \item A program based on the XBraids library to solve time-dependent
-    problems in a parallel-in-time fashion. This program was
-    contributed by Joshua Christopher.
-  \item A program that solves the biphasic nonlinear
-    poro-viscoelasticity equations based on Ogden hyperelasticity, to
-    explore the porous and viscous contributions in brain mechanics
-    applications.  This program was contributed by Ester Comellas and
-    Jean-Paul Pelteret. The program also serves as a demonstration of
-    the automatic differentiation capabilities of \dealii{}.
+  \item 
 \end{itemize}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Python interfaces}
 \label{subsec:python}
 
-Initial support for Python has existed in \dealii{} since version
-9.0. The present release significantly extends the Python
-interface. Specifically, a large number of methods from classes such
-as \texttt{Triangulation, CellAccessor, TriaAccessor, Mapping,
-  Manifold, GridTools} can now be invoked from Python. We have focused
-on methods and functions that are widely used when a mesh is created
-and parameters related to the boundary, manifold, and material
-identifiers are assigned. The following listing gives an idea of how
-such code looks:
-\begin{python}
-import PyDealII.Release as dealii
 
-triangulation = dealii.Triangulation('2D')
-triangulation.generate_hyper_shell(center = dealii.Point([0, 0]),
-                                   inner_radius = 0.5, outer_radius = 1.,
-                                   n_cells = 0, colorize = True)
-
-triangulation.refine_global(2)
-
-for cell in triangulation.active_cells():
-    cell.material_id = 1 if cell.center().x > 0 else 2
-
-    for face in cell.faces():
-        if face.at_boundary() and face.boundary_id == 1:
-            cell.refine_flag = 'isotropic'
-
-triangulation.execute_coarsening_and_refinement()
-\end{python}
-The mesh that results from this code is shown in Fig.~\ref{fig:pymesh}.
-
-\begin{floatingfigure}[r]{0.3\textwidth}
-  \centering
-  \vspace*{-1.4cm}
-  \includegraphics[width=0.3\textwidth]{python_mesh.png}
-  \vspace*{-5mm}
-  \caption{\it The mesh generated by the Python code shown in the main
-    text. Cells are colored by material id.}
-  \vspace*{0.2cm}
-  \label{fig:pymesh}
-\end{floatingfigure}
-All triangulations created from within Python are serial. However,
-once the mesh is designed, the triangulation can be serialized along
-with the auxiliary information about possible refinement, boundaries,
-materials and manifolds. This object can be easily deserialized within
-a C++ program for subsequent production runs. Furthermore, such a
-serialized triangulation can also be used in the construction of
-\texttt{parallel::shared}, \texttt{parallel::distributed}, and
-\texttt{parallel::fullydistributed} triangulations (see also Section~\ref{subsec:pft}).
-
-To facilitate the illustration of the new Python bindings, tutorial programs \href{https://github.com/dealii/dealii/blob/dealii-9.2/examples/step-49/step-49.ipynb}{step-49} and \href{https://github.com/dealii/dealii/blob/dealii-9.2/examples/step-53/step-53.ipynb}{step-53} were replicated as Jupyter notebooks.
-
-The introspective nature of the Python language makes it easy to infer
-the list of supported methods from the Python objects, for example by
-typing \texttt{dir(PyDealII.Release.Triangulation)}.
-The current Python interface does not yet provide access to \dealii{}'s finite element machinery, i.e., classes such as \texttt{DoFHandler, FE\_*, FEValues}, etc.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \subsection{Incompatible changes}
 
-The 9.2 release includes
+The 9.3 release includes
 \href{https://dealii.org/developer/doxygen/deal.II/changes_between_9_1_1_and_9_2_0.html}
 {around 60 incompatible changes}; see \cite{changes92}. The majority of these changes
 should not be visible to typical user codes; some remove previously
@@ -1157,25 +855,7 @@ interfaces that are not usually used in external
 applications. That said, the following are worth mentioning since they
 may have been more widely used:
 \begin{itemize}
-  \item Two functions that provide information about all processes,
-        namely
-        \begin{itemize}
-          \item \texttt{DoFHandler::locally\_owned\_dofs\_per\_processor()}
-          \item \texttt{DoFHandler::locally\_owned\_mg\_dofs\_per\_processor()}
-        \end{itemize}
-        have been deprecated. As discussed in
-        Subsection~\ref{subsec:performance}, \dealii{} by default no longer
-        stores information for all processes on all processes, but only
-        local or locally-relevant information. On the other
-        hand, if necessary, global information can still be computed using,
-        for example, calling
-        \texttt{Utilities::MPI::Allgather(locally\_owned\_info(), comm)}.
-
-  \item A corresponding change has been made in parallel triangulation
-        classes:
-        \texttt{parallel::} \texttt{TriangulationBase::compute\_n\_locally\_owned\_active\_cells\_per\_processor()}
-        can be used to obtain information about how many cells each
-        process owns.
+  \item 
 \end{itemize}
 
 
